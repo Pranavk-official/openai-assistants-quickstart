@@ -111,30 +111,93 @@ export async function POST() {
     name: "Quickstart Assistant",
     model: "gpt-4o",
     tools: [
-      { type: "code_interpreter" },
       {
         type: "function",
         function: {
-          name: "get_weather",
-          description: "Determine weather in my location",
+          name: "generateQuestions",
+          description: "Generate calculus questions tailored to the student's profile",
           parameters: {
             type: "object",
             properties: {
-              location: {
-                type: "string",
-                description: "The city and state e.g. San Francisco, CA",
-              },
-              unit: {
-                type: "string",
-                enum: ["c", "f"],
-              },
+              snapshot: {
+                type: "object",
+                properties: {
+                  student_id: { type: "string" },
+                  levels: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        value: { type: "number" }
+                      }
+                    }
+                  },
+                  weak_areas: { type: "array", items: { type: "string" } },
+                  strong_areas: { type: "array", items: { type: "string" } },
+                  desired_difficulty_level: { type: "number" }
+                },
+                required: ["student_id", "levels", "weak_areas", "strong_areas"]
+              }
             },
-            required: ["location"],
-          },
-        },
+            required: ["snapshot"]
+          }
+        }
       },
-      { type: "file_search" },
-    ],
+      {
+        type: "function",
+        function: {
+          name: "evaluateAnswer",
+          description: "Evaluate student's answer and update their profile",
+          parameters: {
+            type: "object",
+            properties: {
+              question: {
+                type: "object",
+                properties: {
+                  question_id: { type: "string" },
+                  question_text: { type: "string" },
+                  options: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        option_label: { type: "string" },
+                        option_text: { type: "string" },
+                        is_correct: { type: "boolean" },
+                        explanation: { type: "string" }
+                      }
+                    }
+                  }
+                },
+                required: ["question_id", "question_text", "options"]
+              },
+              student_answer: { type: "string" },
+              snapshot: {
+                type: "object",
+                properties: {
+                  student_id: { type: "string" },
+                  levels: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        value: { type: "number" }
+                      }
+                    }
+                  },
+                  weak_areas: { type: "array", items: { type: "string" } },
+                  strong_areas: { type: "array", items: { type: "string" } },
+                  desired_difficulty_level: { type: "number" }
+                }
+              }
+            },
+            required: ["question", "student_answer", "snapshot"]
+          }
+        }
+      }
+    ]
   });
 
   return Response.json({ assistantId: assistant.id });
