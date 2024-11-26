@@ -51,10 +51,21 @@ export async function POST(request: Request) {
     );
 
     // Format messages for the frontend
-    const formattedMessages = messages.data.map(msg => ({
-      role: msg.role,
-      text: msg.content[0].text.value
-    })).reverse(); // Reverse to show oldest messages first
+    const formattedMessages = messages.data.map(msg => {
+      // Check if the first content block is a text block
+      const textContent = msg.content[0];
+      if (textContent.type === 'text') {
+        return {
+          role: msg.role,
+          text: textContent.text.value
+        };
+      }
+      // If not a text block, return a default or skip
+      return {
+        role: msg.role,
+        text: ''
+      };
+    }).filter(msg => msg.text !== '').reverse(); // Reverse to show oldest messages first
 
     // Return existing thread ID with messages
     return NextResponse.json({
