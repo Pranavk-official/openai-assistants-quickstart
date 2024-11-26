@@ -60,132 +60,81 @@ type ChatProps = {
 const Chat = ({
   functionCallHandler = () => Promise.resolve(""), // default to return empty string
 }: ChatProps) => {
-  const [userInput, setUserInput] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<MessageProps[]>([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [studentName, setStudentName] = useState("");
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const messagesEndRef = useRef<null | HTMLDivElement>(null);
   const [inputDisabled, setInputDisabled] = useState(false);
-  const [threadId, setThreadId] = useState("");
 
-  // automatically scroll to bottom of chat
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  // create a new threadID when chat component created
-  useEffect(() => {
-    const createThread = async () => {
-      const res = await fetch(`/api/assistants/threads`, {
-        method: "POST",
+  const handleStudentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentName.trim()) return;
+  
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/students', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ studentName: studentName.trim() })
       });
-      const data = await res.json();
-      setThreadId(data.threadId);
-    };
-    createThread();
-  }, []);
+  
+      const data = await response.json();
+      if (data.threadId) {
+        setThreadId(data.threadId);
+        
+        // If returning student, show previous messages
+        if (!data.isNewStudent && data.messages.length > 0) {
+          setMessages(data.messages);
+        } else {
+          // If new student, show welcome message
+          setMessages([{
+            role: "assistant",
+            text: `Hello ${studentName}! How can I help you today?`
+          }]);
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      setMessages([{
+        role: "assistant",
+        text: "Sorry, there was an error starting the chat. Please try again."
+      }]);
+    }
+    setIsLoading(false);
+  };
 
-  const sendMessage = async (text) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !threadId) return;
+
+    const userMessage = input.trim();
+    setInput("");
+    setMessages((messages) => [...messages, { role: "user", text: userMessage }]);
+    setIsLoading(true);
+
     const response = await fetch(
       `/api/assistants/threads/${threadId}/messages`,
       {
         method: "POST",
         body: JSON.stringify({
-          content: text,
+          content: userMessage,
         }),
       }
     );
     const stream = AssistantStream.fromReadableStream(response.body);
     handleReadableStream(stream);
-  };
-
-  const submitActionResult = async (runId, toolCallOutputs) => {
-    const response = await fetch(
-      `/api/assistants/threads/${threadId}/actions`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          runId: runId,
-          toolCallOutputs: toolCallOutputs,
-        }),
-      }
-    );
-    const stream = AssistantStream.fromReadableStream(response.body);
-    handleReadableStream(stream);
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!userInput.trim()) return;
-    sendMessage(userInput);
-    setMessages((prevMessages) => [
-      ...prevMessages,
-      { role: "user", text: userInput },
-    ]);
-    setUserInput("");
-    setInputDisabled(true);
-    scrollToBottom();
-  };
-
-  /* Stream Event Handlers */
-
-  // textCreated - create new assistant message
-  const handleTextCreated = () => {
-    appendMessage("assistant", "");
-  };
-
-  // textDelta - append text to last assistant message
-  const handleTextDelta = (delta) => {
-    if (delta.value != null) {
-      appendToLastMessage(delta.value);
-    };
-    if (delta.annotations != null) {
-      annotateLastMessage(delta.annotations);
-    }
-  };
-
-  // imageFileDone - show image in chat
-  const handleImageFileDone = (image) => {
-    appendToLastMessage(`\n![${image.file_id}](/api/files/${image.file_id})\n`);
-  }
-
-  // toolCallCreated - log new tool call
-  const toolCallCreated = (toolCall) => {
-    if (toolCall.type != "code_interpreter") return;
-    appendMessage("code", "");
-  };
-
-  // toolCallDelta - log delta and snapshot for the tool call
-  const toolCallDelta = (delta, snapshot) => {
-    if (delta.type != "code_interpreter") return;
-    if (!delta.code_interpreter.input) return;
-    appendToLastMessage(delta.code_interpreter.input);
-  };
-
-  // handleRequiresAction - handle function call
-  const handleRequiresAction = async (
-    event: AssistantStreamEvent.ThreadRunRequiresAction
-  ) => {
-    const runId = event.data.id;
-    const toolCalls = event.data.required_action.submit_tool_outputs.tool_calls;
-    // loop over tool calls and call function handler
-    const toolCallOutputs = await Promise.all(
-      toolCalls.map(async (toolCall) => {
-        const result = await functionCallHandler(toolCall);
-        return { output: result, tool_call_id: toolCall.id };
-      })
-    );
-    setInputDisabled(true);
-    submitActionResult(runId, toolCallOutputs);
-  };
-
-  // handleRunCompleted - re-enable the input form
-  const handleRunCompleted = () => {
-    setInputDisabled(false);
   };
 
   const handleReadableStream = (stream: AssistantStream) => {
@@ -208,11 +157,53 @@ const Chat = ({
     });
   };
 
-  /*
-    =======================
-    === Utility Helpers ===
-    =======================
-  */
+  const handleTextCreated = () => {
+    appendMessage("assistant", "");
+  };
+
+  const handleTextDelta = (delta) => {
+    if (delta.value != null) {
+      appendToLastMessage(delta.value);
+    };
+    if (delta.annotations != null) {
+      annotateLastMessage(delta.annotations);
+    }
+  };
+
+  const handleImageFileDone = (image) => {
+    appendToLastMessage(`\n![${image.file_id}](/api/files/${image.file_id})\n`);
+  }
+
+  const toolCallCreated = (toolCall) => {
+    if (toolCall.type != "code_interpreter") return;
+    appendMessage("code", "");
+  };
+
+  const toolCallDelta = (delta, snapshot) => {
+    if (delta.type != "code_interpreter") return;
+    if (!delta.code_interpreter.input) return;
+    appendToLastMessage(delta.code_interpreter.input);
+  };
+
+  const handleRequiresAction = async (
+    event: AssistantStreamEvent.ThreadRunRequiresAction
+  ) => {
+    const runId = event.data.id;
+    const toolCalls = event.data.required_action.submit_tool_outputs.tool_calls;
+    // loop over tool calls and call function handler
+    const toolCallOutputs = await Promise.all(
+      toolCalls.map(async (toolCall) => {
+        const result = await functionCallHandler(toolCall);
+        return { output: result, tool_call_id: toolCall.id };
+      })
+    );
+    setInputDisabled(true);
+    submitActionResult(runId, toolCallOutputs);
+  };
+
+  const handleRunCompleted = () => {
+    setInputDisabled(false);
+  };
 
   const appendToLastMessage = (text) => {
     setMessages((prevMessages) => {
@@ -248,31 +239,61 @@ const Chat = ({
     
   }
 
+  const submitActionResult = async (runId, toolCallOutputs) => {
+    const response = await fetch(
+      `/api/assistants/threads/${threadId}/actions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          runId: runId,
+          toolCallOutputs: toolCallOutputs,
+        }),
+      }
+    );
+    const stream = AssistantStream.fromReadableStream(response.body);
+    handleReadableStream(stream);
+  };
+
+  if (!threadId) {
+    return (
+      <div className={styles.chat}>
+        <form onSubmit={handleStudentSubmit} className={styles.inputForm}>
+          <input
+            className={styles.input}
+            value={studentName}
+            onChange={(e) => setStudentName(e.target.value)}
+            placeholder="Enter your name to start chatting..."
+            disabled={isLoading}
+          />
+          <button type="submit" disabled={isLoading || !studentName.trim()} className={styles.button}>
+            {isLoading ? "Starting..." : "Start Chat"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   return (
-    <div className={styles.chatContainer}>
+    <div className={styles.chat}>
       <div className={styles.messages}>
-        {messages.map((msg, index) => (
-          <Message key={index} role={msg.role} text={msg.text} />
+        {messages.map((message, index) => (
+          <Message key={index} {...message} />
         ))}
         <div ref={messagesEndRef} />
       </div>
-      <form
-        onSubmit={handleSubmit}
-        className={`${styles.inputForm} ${styles.clearfix}`}
-      >
+      <form onSubmit={handleSubmit} className={styles.inputForm}>
         <input
-          type="text"
           className={styles.input}
-          value={userInput}
-          onChange={(e) => setUserInput(e.target.value)}
-          placeholder="Enter your question"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type your message..."
+          disabled={isLoading}
         />
-        <button
-          type="submit"
-          className={styles.button}
-          disabled={inputDisabled}
-        >
-          Send
+        <button type="submit" disabled={isLoading || !input.trim()} className={styles.button}>
+          {isLoading ? "Sending..." : "Send"}
         </button>
       </form>
     </div>
